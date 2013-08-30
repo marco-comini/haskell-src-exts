@@ -373,6 +373,8 @@ data Decl l
      -- ^ A SPECIALISE instance pragma
      | AnnPragma        l (Annotation l)
      -- ^ An ANN pragma
+     | FreeVarsDecl     l [Name l]
+     -- ^ A Curry's free var declaration
 #ifdef __GLASGOW_HASKELL__
   deriving (Eq,Ord,Show,Typeable,Data,Foldable,Traversable)
 #else
@@ -756,6 +758,10 @@ data Exp l
     | RightArrApp     l (Exp l) (Exp l)     -- ^ arrow application (from right): /exp/ @>-@ /exp/
     | LeftArrHighApp  l (Exp l) (Exp l)     -- ^ higher-order arrow application (from left): /exp/ @-<<@ /exp/
     | RightArrHighApp l (Exp l) (Exp l)     -- ^ higher-order arrow application (from right): /exp/ @>>-@ /exp/
+
+-- Curry
+    | Fcase l (Exp l) [Alt l]               -- ^ @fcase@ /exp/ @of@ /alts/
+    | AnonymousFreeVar l                    -- ^ Curry's anonymous free var: @_@
 #ifdef __GLASGOW_HASKELL__
   deriving (Eq,Ord,Show,Typeable,Data,Foldable,Traversable)
 #else
@@ -1243,6 +1249,7 @@ instance Functor Decl where
         SpecSig          l   mact qn ts   -> SpecSig       (f l)   (fmap (fmap f) mact) (fmap f qn) (map (fmap f) ts)
         InstSig          l mcx ih         -> InstSig (f l) (fmap (fmap f) mcx) (fmap f ih)
         AnnPragma        l ann            -> AnnPragma (f l) (fmap f ann)
+        FreeVarsDecl     l ns             -> FreeVarsDecl (f l) (map (fmap f) ns)
       where wp f (ns, s) = (map (fmap f) ns, s)
 
 instance Functor Annotation where
@@ -1410,6 +1417,9 @@ instance Functor Exp where
         BracketExp l br         -> BracketExp (f l) (fmap f br)
         SpliceExp l sp          -> SpliceExp (f l) (fmap f sp)
         QuasiQuote l sn se      -> QuasiQuote (f l) sn se
+
+        Fcase l e alts  -> Fcase (f l) (fmap f e) (map (fmap f) alts)
+        AnonymousFreeVar l -> AnonymousFreeVar (f l)
 
         XTag  l xn xas me es     -> XTag  (f l) (fmap f xn) (map (fmap f) xas) (fmap (fmap f) me) (map (fmap f) es)
         XETag l xn xas me        -> XETag (f l) (fmap f xn) (map (fmap f) xas) (fmap (fmap f) me)
@@ -1721,6 +1731,7 @@ instance Annotated Decl where
         SpecInlineSig    l b act qn ts  -> l
         InstSig          l cx ih        -> l
         AnnPragma        l ann          -> l
+        FreeVarsDecl     l ns           -> l
     amap f decl = case decl of
         TypeDecl     l dh t      -> TypeDecl    (f l) dh t
         TypeFamDecl  l dh mk     -> TypeFamDecl (f l) dh mk
@@ -1752,6 +1763,7 @@ instance Annotated Decl where
         SpecInlineSig    l b act qn ts   -> SpecInlineSig (f l) b act qn ts
         InstSig          l mcx ih        -> InstSig (f l) mcx ih
         AnnPragma        l ann           -> AnnPragma (f l) ann
+        FreeVarsDecl     l ns            -> FreeVarsDecl (f l) ns
 
 instance Annotated Annotation where
     ann (Ann     l n e) = l
@@ -1978,6 +1990,9 @@ instance Annotated Exp where
         SpliceExp l sp          -> l
         QuasiQuote l sn se      -> l
 
+        Fcase l e alts   -> l
+        AnonymousFreeVar l -> l
+
         XTag  l xn xas me es     -> l
         XETag l xn xas me        -> l
         XPcdata l s              -> l
@@ -2028,6 +2043,9 @@ instance Annotated Exp where
         BracketExp l br         -> BracketExp (f l) br
         SpliceExp l sp          -> SpliceExp (f l) sp
         QuasiQuote l sn se      -> QuasiQuote (f l) sn se
+
+        Fcase l e alts  -> Fcase (f l) e alts
+        AnonymousFreeVar l -> AnonymousFreeVar (f l)
 
         XTag  l xn xas me es     -> XTag  (f l) xn xas me es
         XETag l xn xas me        -> XETag (f l) xn xas me

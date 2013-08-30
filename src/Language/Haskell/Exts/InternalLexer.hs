@@ -196,6 +196,10 @@ data Token
         | KW_Js
         | KW_CApi
 
+                -- Curry
+        | KW_Free
+        | KW_Fcase
+
         | EOF
         deriving (Eq,Show)
 
@@ -274,6 +278,10 @@ reserved_ids = [
 
 -- FFI
  ( "foreign",   (KW_Foreign,    Just (Any [ForeignFunctionInterface])) ),
+
+-- Curry
+ ( "free",      (KW_Free,       Just (Any [FreeVars])) ),
+ ( "fcase",     (KW_Fcase,      Just (Any [FlexibleCase])) ),
 
 -- Unicode
  ( "\x2200",    (KW_Forall,     Just (All [UnicodeSyntax, ExplicitForAll])) )
@@ -1306,5 +1314,8 @@ showToken t = case t of
   KW_Interruptible -> "interruptible"
   KW_StdCall    -> "stdcall"
   KW_CCall      -> "ccall"
+  -- Curry
+  KW_Fcase      -> "fcase"
+  KW_Free       -> "free"
 
   EOF           -> "EOF"

@@ -319,6 +319,8 @@ data Decl
      -- ^ A foreign import declaration
      | ForExp   SrcLoc CallConv          String Name Type
      -- ^ A foreign export declaration
+     | FreeVarsDecl         SrcLoc [Name]
+     -- ^ A Curry's declaration of free variables 
 
      | RulePragmaDecl   SrcLoc [Rule]
      -- ^ A RULES pragma
@@ -655,6 +657,10 @@ data Exp
     | RightArrApp     Exp Exp   -- ^ arrow application (from right): /exp/ @>-@ /exp/
     | LeftArrHighApp  Exp Exp   -- ^ higher-order arrow application (from left): /exp/ @-<<@ /exp/
     | RightArrHighApp Exp Exp   -- ^ higher-order arrow application (from right): /exp/ @>>-@ /exp/
+
+-- Curry
+    | Fcase Exp [Alt]           -- ^ @fcase@ /exp/ @of@ /alts/
+    | AnonymousFreeVar          -- ^ Curry's anonymous free var: @_@
 #ifdef __GLASGOW_HASKELL__
   deriving (Eq,Ord,Show,Typeable,Data)
 #else

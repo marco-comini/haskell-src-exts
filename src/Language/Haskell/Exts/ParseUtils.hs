@@ -582,6 +582,14 @@ checkExpr e = case e of
                      e <- checkExpr e
                      return (S.ExpTypeSig loc e ty)
 
+    --Curry
+    Fcase l e alts     -> do
+                     e <- checkExpr e
+                     return (S.Fcase l e alts)
+    WildCard l -> do
+                    checkEnabled FreeVars
+                    return $ S.AnonymousFreeVar l
+
     --Template Haskell
     BracketExp l e        -> return $ S.BracketExp l e
     SpliceExp l e         -> return $ S.SpliceExp l e

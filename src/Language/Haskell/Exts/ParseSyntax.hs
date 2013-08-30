@@ -95,6 +95,9 @@ data PExp l
     | RightArrApp     l (PExp l) (PExp l)   -- ^ e >- e
     | LeftArrHighApp  l (PExp l) (PExp l)   -- ^ e -<< e
     | RightArrHighApp l (PExp l) (PExp l)   -- ^ e >>- e
+
+-- Curry
+    | Fcase l (PExp l) [Alt l]              -- ^ @fcase@ /exp/ @of@ /alts/
    deriving (Eq,Show)
 
 data PFieldUpdate l
@@ -119,6 +122,7 @@ instance Annotated PExp where
         Let l bs e      -> l
         If l ec et ee   -> l
         Case l e alts   -> l
+        Fcase l e alts  -> l
         Do l ss         -> l
         MDo l ss        -> l
         TupleSection l bx mes -> l
@@ -181,6 +185,7 @@ instance Annotated PExp where
         Let l bs e              -> Let (f l) bs e
         If l ec et ee           -> If (f l) ec et ee
         Case l e alts           -> Case (f l) e alts
+        Fcase l e alts          -> Fcase (f l) e alts
         Do l ss                 -> Do (f l) ss
         MDo l ss                -> MDo (f l) ss
         TupleSection l bx mes   -> TupleSection (f l) bx mes
@@ -244,6 +249,7 @@ instance Functor PExp where
           Let l bs e              -> Let (f l) (fmap f bs) (fmap f e)
           If l ec et ee           -> If (f l) (fmap f ec) (fmap f et) (fmap f ee)
           Case l e alts           -> Case (f l) (fmap f e) (map (fmap f) alts)
+          Fcase l e alts          -> Fcase (f l) (fmap f e) (map (fmap f) alts)
           Do l ss                 -> Do (f l) (map (fmap f) ss)
           MDo l ss                -> MDo (f l) (map (fmap f) ss)
           TupleSection l bx mes   -> TupleSection (f l) bx (map (fmap (fmap f)) mes)
