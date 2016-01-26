@@ -1,5 +1,5 @@
 Name:                   haskell-src-exts
-Version:                1.16.0.1
+Version:                1.17.1
 License:                BSD3
 License-File:           LICENSE
 Build-Type:             Simple
@@ -30,10 +30,12 @@ Description:            Haskell-Source with Extensions (HSE, haskell-src-exts)
 Homepage:               https://github.com/haskell-suite/haskell-src-exts
 Stability:              Stable
 Cabal-Version:          >= 1.10
+Tested-With:            GHC == 7.4.2, GHC == 7.6.3, GHC == 7.8.2, GHC == 7.10.2
 
 Extra-Source-Files:
                         README.md
                         CHANGELOG
+                        RELEASENOTES-1.17.0
                         tests/examples/*.hs
                         tests/examples/*.lhs
                         tests/examples/*.hs.parser.golden
@@ -101,7 +103,7 @@ Test-Suite test
                        smallcheck >= 1.0,
                        tasty >= 0.3,
                        tasty-smallcheck,
-                       tasty-golden >= 2.2.2 && < 2.3 ,
+                       tasty-golden >= 2.2.2,
                        filepath,
                        directory,
                        syb,

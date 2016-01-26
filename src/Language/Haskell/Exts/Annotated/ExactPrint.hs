@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE CPP #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Language.Haskell.Exts.Annotated.ExactPrint
@@ -24,7 +25,9 @@ import Language.Haskell.Exts.SrcLoc
 import Language.Haskell.Exts.Comments
 
 import Control.Monad (when, liftM, ap, unless)
+#if __GLASGOW_HASKELL__ < 710
 import Control.Applicative (Applicative(..))
+#endif
 import Control.Arrow ((***), (&&&))
 import Prelude hiding (exp)
 import Data.List (intersperse)
@@ -1107,6 +1110,11 @@ instance ExactP Type where
     TySplice _ sp  -> exactP sp
     TyBang _ b t -> exactPC b >> exactPC t
     TyWildCard _ mn      -> printString "_" >> maybeEP exactPC mn
+    TyQuasiQuote _ name qt    -> do
+        let qtLines = lines qt
+        printString $ "[" ++ name ++ "|"
+        sequence_ (intersperse newLine $ map printString qtLines)
+        printString "|]"
 
 instance ExactP Promoted where
   exactP (PromotedInteger _ _ rw) = printString rw

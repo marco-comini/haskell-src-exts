@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Language.Haskell.Exts.Pretty
@@ -36,7 +37,9 @@ import Prelude hiding (exp)
 import qualified Text.PrettyPrint as P
 import Data.List (intersperse)
 import Data.Maybe (isJust)
+#if __GLASGOW_HASKELL__ < 710
 import Control.Applicative (Applicative(..))
+#endif
 import qualified Control.Monad as M (ap)
 
 infixl 5 $$$
@@ -649,7 +652,9 @@ instance Pretty Match where
                 $$$ ppWhere whereBinds
             where
                 lhs = case ps of
-                        l:r:ps' | isSymbolName f ->
+                        -- We pretty print all symbols infix except for '!' because
+                        -- doing so would change the semantics when BangPatterns is on.
+                        l:r:ps' | isSymbolName f && (f /= Symbol "!") ->
                                 let hd = [prettyPrec 2 l, ppName f, prettyPrec 2 r] in
                                 if null ps' then hd
                                 else parens (myFsep hd) : map (prettyPrec 3) ps'
@@ -876,7 +881,7 @@ instance Pretty Type where
         prettyPrec _ (TySplice s) = pretty s
         prettyPrec _ (TyBang b t) = pretty b <> prettyPrec prec_atype t
         prettyPrec _ (TyWildCard mn) = char '_' <> maybePP pretty mn
-
+        prettyPrec _ (TyQuasiQuote n qt) = text ("[" ++ n ++ "|" ++ qt ++ "|]")
 
 instance Pretty Promoted where
   pretty p =
@@ -1947,3 +1952,4 @@ instance SrcInfo loc => Pretty (P.PType loc) where
         prettyPrec _ (P.TySplice _ s) = pretty s
         prettyPrec _ (P.TyBang _ b t) = pretty b <> prettyPrec prec_atype t
         prettyPrec _ (P.TyWildCard _ mn) = char '_' <> maybePP pretty mn
+        prettyPrec _ (P.TyQuasiQuote _ n qt) = text ("[$" ++ n ++ "|" ++ qt ++ "|]")

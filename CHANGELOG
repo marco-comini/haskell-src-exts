@@ -1,4 +1,9 @@
-** 1.17.x
+1.17.0 --> 1.17.1
+=================
+
+Bug Fix:
+
+* Fix bug in parsing view patterns (#284)
 
 1.16.0.1 --> 1.17.0
 ===================
@@ -11,6 +16,7 @@ AST changes:
   distinguish between empty where clauses and where clauses with no
   binds (#244).
 * Add RoleAnnotDecl and Role to support Role annotations (#215).
+* Move NameSpace field from EVar/IVar to EAbs/IAbs.
 
 Other changes:
 
@@ -46,6 +52,10 @@ Other changes:
 * Parse trailing where (#25).
 * Parse modules starting with pragmas and indented
   "module" keyword (#122).
+* Use pretty-show to get human readable test outputs.
+* Respect fixity declarations inside where/let/class in
+  `applyFixities` (#212).
+* Correctly parse the combination of view patterns and bang patterns. (#276)
 
 ** 1.16.x
 

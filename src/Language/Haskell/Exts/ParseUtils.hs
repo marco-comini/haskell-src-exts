@@ -1,4 +1,5 @@
 {-# OPTIONS_HADDOCK hide #-}
+{-# LANGUAGE CPP #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Language.Haskell.Exts.ParseUtils
@@ -87,7 +88,9 @@ import Prelude hiding (mod)
 import Data.List (intercalate, intersperse)
 import Data.Maybe (fromJust, fromMaybe)
 import Control.Monad (when,unless)
+#if __GLASGOW_HASKELL__ < 710
 import Control.Applicative (Applicative (..), (<$>))
+#endif
 
 --- import Debug.Trace (trace)
 
@@ -467,8 +470,7 @@ checkPat e' [] = case e' of
                   return (PIrrPat l p)
     ViewPat l e p  -> do
                   e1 <- checkExpr e
-                  p1 <- checkPat p []
-                  return (PViewPat l e1 p1)
+                  return (PViewPat l e1 p)
     RecConstr l c fs   -> do
                   fs' <- mapM checkPatField fs
                   return (PRec l c fs')
@@ -840,7 +842,7 @@ isFunLhs (InfixApp _ l (QVarOp loc (UnQual _ op)) r) es
         let infos = srcInfoPoints loc
             op'   = amap (\s -> s { srcInfoPoints = infos }) op
         in (return $ Just (op', l:r:es, False, []))
-isFunLhs (App _ (Var _ (UnQual _ f)) e) es = return $ Just (f, e:es, True, [])
+isFunLhs (App _ (Var l (UnQual _ f)) e) es = return $ Just (f, e:es, True, srcInfoPoints l)
 isFunLhs (App _ f e) es = isFunLhs f (e:es)
 isFunLhs (Var _ (UnQual _ f)) es@(_:_) = return $ Just (f, es, True, [])
 isFunLhs (Paren l f) es@(_:_) = do mlhs <- isFunLhs f es
@@ -1104,6 +1106,9 @@ checkT t simple = case t of
                               return $ S.TySplice l s
     TyBang l b t' -> check1Type t' (S.TyBang l b)
     TyWildCard l mn -> return $ S.TyWildCard l mn
+    TyQuasiQuote l n s -> do
+                              checkEnabled QuasiQuotes
+                              return $ S.TyQuasiQuote l n s
     _   -> fail $ "Parse error in type: " ++ prettyPrint t
 
 check1Type :: PType L -> (S.Type L -> S.Type L) -> P (S.Type L)

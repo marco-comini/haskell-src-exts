@@ -1,4 +1,10 @@
-{-# LANGUAGE DeriveDataTypeable, DeriveFoldable, DeriveTraversable, DeriveFunctor, DeriveGeneric #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE CPP #-}
+
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Language.Haskell.Exts.Annotated.Syntax
@@ -93,7 +99,7 @@ module Language.Haskell.Exts.Annotated.Syntax (
     as_name, qualified_name, hiding_name, minus_name, bang_name, dot_name, star_name,
     export_name, safe_name, unsafe_name, interruptible_name, threadsafe_name,
     stdcall_name, ccall_name, cplusplus_name, dotnet_name, jvm_name, js_name,
-    javascript_name, capi_name, forall_name, family_name,
+    javascript_name, capi_name, forall_name, family_name, role_name,
     -- ** Type constructors
     unit_tycon_name, fun_tycon_name, list_tycon_name, tuple_tycon_name, unboxed_singleton_tycon_name,
     unit_tycon, fun_tycon, list_tycon, tuple_tycon, unboxed_singleton_tycon,
@@ -109,8 +115,10 @@ import Prelude hiding (id)
 
 import Data.Data
 import GHC.Generics (Generic)
+#if __GLASGOW_HASKELL__ < 710
 import Data.Foldable (Foldable)
 import Data.Traversable (Traversable)
+#endif
 
 -- | The name of a Haskell module.
 data ModuleName l = ModuleName l String
@@ -597,6 +605,7 @@ data Type l
      | TySplice l (Splice l)                    -- ^ template haskell splice type
      | TyBang l (BangType l) (Type l)           -- ^ Strict type marked with \"@!@\" or type marked with UNPACK pragma.
      | TyWildCard l (Maybe (Name l))            -- ^ Either an anonymous of named type wildcard
+     | TyQuasiQuote l String String             -- ^ @[$/name/| /string/ |]@
   deriving (Eq,Ord,Show,Typeable,Data,Foldable,Traversable,Functor,Generic)
 
 -- | Bools here are True if there was a leading quote which may be
@@ -995,7 +1004,7 @@ star_name      l = Symbol l "*"
 export_name, safe_name, unsafe_name, interruptible_name, threadsafe_name,
   stdcall_name, ccall_name, cplusplus_name, dotnet_name,
   jvm_name, js_name, javascript_name, capi_name, forall_name,
-  family_name :: l -> Name l
+  family_name, role_name :: l -> Name l
 export_name     l = Ident l "export"
 safe_name       l = Ident l "safe"
 unsafe_name     l = Ident l "unsafe"
@@ -1011,6 +1020,7 @@ javascript_name l = Ident l "javascript"
 capi_name       l = Ident l "capi"
 forall_name     l = Ident l "forall"
 family_name     l = Ident l "family"
+role_name       l = Ident l "role"
 
 unit_tycon_name, fun_tycon_name, list_tycon_name, unboxed_singleton_tycon_name :: l -> QName l
 unit_tycon_name l = unit_con_name l
@@ -1409,6 +1419,7 @@ instance Annotated Type where
       TySplice l _                  -> l
       TyBang l _ _                  -> l
       TyWildCard l _                -> l
+      TyQuasiQuote l _ _            -> l
     amap f t1 = case t1 of
       TyForall l mtvs mcx t         -> TyForall (f l) mtvs mcx t
       TyFun   l t1' t2              -> TyFun (f l) t1' t2
@@ -1426,6 +1437,7 @@ instance Annotated Type where
       TySplice l s                  -> TySplice (f l) s
       TyBang l b t                  -> TyBang (f l) b t
       TyWildCard l n                -> TyWildCard (f l) n
+      TyQuasiQuote l n s            -> TyQuasiQuote (f l) n s
 
 instance Annotated TyVarBind where
     ann (KindedVar   l _ _) = l
