@@ -300,15 +300,15 @@ prettyPrimWithMode pphs doc = unDocM (pretty doc) pphs
 -------------------------  Pretty-Print a Module --------------------
 instance Pretty Module where
         pretty (Module pos m os mbWarn mbExports imp decls) =
-                markLine pos $
-                myVcat $ map pretty os ++
+                markLine pos $ (myVcat $ map pretty os) $$
+                myVcat (
                     (if m == ModuleName "" then id
                      else \x -> [topLevel (ppModuleHeader m mbWarn mbExports) x])
                     (map pretty imp ++
                       ppDecls (m /= ModuleName "" ||
                                not (null imp) ||
                                not (null os))
-                              decls)
+                              decls))
 
 --------------------------  Module Header ------------------------------
 ppModuleHeader :: ModuleName -> Maybe WarningText -> Maybe [ExportSpec] -> Doc
@@ -832,6 +832,7 @@ ppField (names, ty) =
 instance Pretty BangType where
         pretty BangedTy   = char '!'
         pretty UnpackedTy = text "{-# UNPACK #-}" <+> char '!'
+        pretty NoUnpackedTy = text "{-# NOUNPACK #-}" <+> char '!'
 
 ppDeriving :: [Deriving] -> Doc
 ppDeriving []  = empty
@@ -1266,18 +1267,18 @@ instance Pretty QOp where
 
 ppQNameInfix :: QName -> Doc
 ppQNameInfix name
-        | isSymbolName (getName name) = ppQName name
+        | isSymbolQName name = ppQName name
         | otherwise = char '`' <> ppQName name <> char '`'
 
 instance Pretty QName where
         pretty name = case name of
                 UnQual (Symbol ('#':_)) -> char '(' <+> ppQName name <+> char ')'
-                _ -> parensIf (isSymbolName (getName name)) (ppQName name)
+                _ -> parensIf (isSymbolQName name) (ppQName name)
 
 ppQName :: QName -> Doc
 ppQName (UnQual name) = ppName name
 ppQName (Qual m name) = pretty m <> char '.' <> ppName name
-ppQName (Special sym) = text (specialName sym)
+ppQName (Special sym) = pretty sym
 
 instance Pretty Op where
         pretty (VarOp n) = ppNameInfix n
@@ -1313,31 +1314,28 @@ instance Pretty CName where
         pretty (ConName n) = pretty n
 
 instance Pretty SpecialCon where
-        pretty sc = text $ specialName sc
+        pretty UnitCon          = text "()"
+        pretty ListCon          = text "[]"
+        pretty FunCon           = text "->"
+        pretty (TupleCon b n)   = listFun $ replicate (n-1) comma
+          where listFun = if b == Unboxed then hashParenList else parenList
+        pretty Cons             = text ":"
+        pretty UnboxedSingleCon = text "(# #)"
 
 isSymbolName :: Name -> Bool
 isSymbolName (Symbol _) = True
 isSymbolName _ = False
 
+isSymbolQName :: QName -> Bool
+isSymbolQName (UnQual n)       = isSymbolName n
+isSymbolQName (Qual _ n)       = isSymbolName n
+isSymbolQName (Special Cons)   = True
+isSymbolQName (Special FunCon) = True
+isSymbolQName _                = False
+
 getSpecialName :: QName -> Maybe SpecialCon
 getSpecialName (Special n) = Just n
 getSpecialName _           = Nothing
-
-getName :: QName -> Name
-getName (UnQual s) = s
-getName (Qual _ s) = s
-getName (Special Cons) = Symbol ":"
-getName (Special FunCon) = Symbol "->"
-getName (Special s) = Ident (specialName s)
-
-specialName :: SpecialCon -> String
-specialName UnitCon = "()"
-specialName ListCon = "[]"
-specialName FunCon = "->"
-specialName (TupleCon b n) = "(" ++ hash ++ replicate (n-1) ',' ++ hash ++ ")"
-    where hash = if b == Unboxed then "#" else ""
-specialName Cons = ":"
-specialName UnboxedSingleCon = "(# #)"
 
 -- Contexts are "sets" of assertions. Several members really means it's a
 -- CxTuple, but we can't represent that in our list of assertions.

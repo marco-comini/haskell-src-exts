@@ -142,6 +142,7 @@ data Token
         | GENERATED
         | CORE
         | UNPACK
+        | NOUNPACK
         | OPTIONS (Maybe String,String)
 --        | CFILES  String
 --        | INCLUDE String
@@ -330,6 +331,7 @@ pragmas = [
  ( "generated",         GENERATED       ),
  ( "core",              CORE            ),
  ( "unpack",            UNPACK          ),
+ ( "nounpack",          NOUNPACK        ),
  ( "language",          LANGUAGE        ),
  ( "minimal",           MINIMAL         ),
  ( "no_overlap",        NO_OVERLAP      ),
@@ -801,8 +803,8 @@ lexStdToken = do
                         idents <- lexIdents
                         return $ ident : idents
                  '#':_ | MagicHash `elem` exts -> do
-                        discard 1
-                        return [ident ++ "#"]
+                        hashes <- lexWhile (== '#')
+                        return [ident ++ hashes]
                  _ -> return [ident]
 
             lexQuasiQuote :: Char -> Lex a Token
@@ -1337,6 +1339,7 @@ showToken t = case t of
   GENERATED         -> "{-# GENERATED"
   CORE              -> "{-# CORE"
   UNPACK            -> "{-# UNPACK"
+  NOUNPACK            -> "{-# NOUNPACK"
   OPTIONS (mt,_)    -> "{-# OPTIONS" ++ maybe "" (':':) mt ++ " ..."
 --  CFILES  s         -> "{-# CFILES ..."
 --  INCLUDE s         -> "{-# INCLUDE ..."

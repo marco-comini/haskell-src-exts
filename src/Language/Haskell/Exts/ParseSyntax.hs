@@ -25,12 +25,10 @@ data PExp l
                                             --   the last statement in the list
                                             --   should be an expression.
     | MDo l [Stmt l]                        -- ^ @mdo@-expression
---    | Tuple [PExp]                        -- ^ tuple expression
     | TupleSection l Boxed [Maybe (PExp l)] -- ^ tuple section expression, e.g. @(,,3)@
     | List l [PExp l]                       -- ^ list expression
     | ParArray l [PExp l]                   -- ^ parallel array expression
     | Paren l (PExp l)                      -- ^ parenthesized expression
---     RightSection QOp PExp                -- ^ right section @(@/qop/ /exp/@)@
     | RecConstr l (QName l) [PFieldUpdate l]
                                             -- ^ record construction expression
     | RecUpdate l (PExp l) [PFieldUpdate l]
@@ -375,13 +373,3 @@ instance Annotated PAsst where
         EqualP l t1 t2      -> EqualP (f l) t1 t2
         ParenA l a          -> ParenA (f l) a
         WildCardA l mn      -> WildCardA (f l) mn
-
-
-unit_tycon, fun_tycon, list_tycon, unboxed_singleton_tycon :: l -> PType l
-unit_tycon              l = TyCon l (unit_tycon_name l)
-fun_tycon               l = TyCon l (fun_tycon_name l)
-list_tycon              l = TyCon l (list_tycon_name l)
-unboxed_singleton_tycon l = TyCon l (unboxed_singleton_tycon_name l)
-
-tuple_tycon :: l -> Boxed -> Int -> PType l
-tuple_tycon l b i         = TyCon l (tuple_tycon_name l b i)

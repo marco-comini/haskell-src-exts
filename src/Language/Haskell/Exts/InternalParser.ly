@@ -267,6 +267,7 @@ Pragmas
 >       '{-# DEPRECATED'        { Loc $$ DEPRECATED }
 >       '{-# WARNING'           { Loc $$ WARNING }
 >       '{-# UNPACK'            { Loc $$ UNPACK }
+>       '{-# NOUNPACK'          { Loc $$ NOUNPACK }
 >       '{-# OPTIONS'           { Loc _ (OPTIONS _) }
        '{-# CFILES'            { Loc _ (CFILES  _) }
        '{-# INCLUDE'           { Loc _ (INCLUDE _) }
@@ -906,9 +907,8 @@ the (# and #) lexemes. Kinds will be handled at the kind rule.
 > atype :: { PType L }
 >       : gtycon                        { TyCon   (ann $1) $1 }
 >       | tyvar                         {% checkTyVar $1 }
->       | strict_mark atype             { let (bangOrPack, locs) = $1
->                                           in let annot = if bangOrPack then (BangedTy (nIS (last locs) <** locs)) else UnpackedTy (nIS (head locs) <++> nIS (last locs) <** locs)
->                                            in bangType (nIS (head locs) <++> ann $2) annot $2 }
+>       | strict_mark atype             { let (annot, locs) = $1
+>                                          in bangType (nIS (head locs) <++> ann $2) annot $2 }
 >       | '(' types ')'                 { TyTuple ($1 <^^> $3 <** ($1:reverse ($3:snd $2))) Boxed   (reverse (fst $2)) }
 >       | '(#' types1 '#)'              { TyTuple ($1 <^^> $3 <** ($1:reverse ($3:snd $2))) Unboxed (reverse (fst $2)) }
 >       | '[' type ']'                  { TyList  ($1 <^^> $3 <** [$1,$3]) $2 }
@@ -932,9 +932,10 @@ the (# and #) lexemes. Kinds will be handled at the kind rule.
 >       | INT                           { let Loc l (IntTok  (i,raw)) = $1 in PromotedInteger (nIS l) i raw }
 >       | STRING                        { let Loc l (StringTok (s,raw)) = $1 in PromotedString (nIS l) s raw }
 
-> strict_mark :: { (Bool, [S]) }
->        : '!'                           { (True, [$1]) }
->        | '{-# UNPACK' '#-}' '!'        { (False, [$1,$2,$3]) }
+> strict_mark :: { (BangType L, [S]) }
+>        : '!'                           { (BangedTy ((nIS $1) <** [$1]), [$1]) }
+>        | '{-# UNPACK' '#-}' '!'        { let l = [$1,$2,$3] in (UnpackedTy (nIS $1 <++> nIS $3 <** l), l) }
+>        | '{-# NOUNPACK' '#-}' '!'      { let l = [$1,$2,$3] in (NoUnpackedTy (nIS $1 <++> nIS $3 <** l), l) }
 
 
 > gtycon :: { QName L }
@@ -1432,6 +1433,9 @@ Template Haskell - all this is enabled in the lexer.
 >       | '[t|' truectype '|]'              { let l = $1 <^^> $3 <** [$1,$3] in BracketExp l $ TypeBracket l $2 }
 >       | '[d|' open topdecls close '|]'    { let l = $1 <^^> $5 <** ($1:snd $3 ++ [$5])
 >                                             in BracketExp l $ DeclBracket ($1 <^^> $5 <** ($2:snd $3 ++ [$4,$5])) (fst $3) }
+>       | VARQUOTE '(' ')'              { let {l1 = $1 <^^> $3 <** [$1];
+>                                              l2 = $2 <^^> $3 <** [$2,$3];}
+>                                          in VarQuote l1 (unit_con_name l2) }
 >       | VARQUOTE qvar                 { VarQuote (nIS $1 <++> ann $2 <** [$1]) $2 }
 >       | VARQUOTE qcon                 { VarQuote (nIS $1 <++> ann $2 <** [$1]) $2 }
 >       | TYPQUOTE tyvar                { TypQuote (nIS $1 <++> ann $2 <** [$1]) (UnQual (ann $2) $2) }
