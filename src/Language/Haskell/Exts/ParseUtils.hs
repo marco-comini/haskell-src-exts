@@ -1,5 +1,6 @@
 {-# OPTIONS_HADDOCK hide #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE PatternGuards #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Language.Haskell.Exts.ParseUtils
@@ -54,6 +55,9 @@ module Language.Haskell.Exts.ParseUtils (
     , getGConName           -- S.Exp -> P QName
     , mkTyForall            -- Maybe [TyVarBind] -> PContext -> PType -> PType
     , mkRoleAnnotDecl       --
+    , mkAssocType
+    , mkEThingWith
+    , splitTilde
     -- HaRP
     , checkRPattern         -- PExp -> P RPat
     -- Hsx
@@ -74,8 +78,8 @@ module Language.Haskell.Exts.ParseUtils (
     , p_unboxed_singleton_con   -- PExp
     ) where
 
-import Language.Haskell.Exts.Annotated.Syntax hiding ( Type(..), Asst(..), Exp(..), FieldUpdate(..), XAttr(..), Context(..) )
-import qualified Language.Haskell.Exts.Annotated.Syntax as S ( Type(..), Asst(..), Exp(..), FieldUpdate(..), XAttr(..), Context(..), Role(..), PatternSynDirection(..))
+import Language.Haskell.Exts.Syntax hiding ( Type(..), Asst(..), Exp(..), FieldUpdate(..), XAttr(..), Context(..) )
+import qualified Language.Haskell.Exts.Syntax as S ( Type(..), Asst(..), Exp(..), FieldUpdate(..), XAttr(..), Context(..), Role(..), PatternSynDirection(..))
 
 import Language.Haskell.Exts.ParseSyntax
 import Language.Haskell.Exts.ParseMonad
@@ -87,12 +91,12 @@ import Language.Haskell.Exts.ExtScheme
 import Prelude hiding (mod)
 import Data.List (intercalate, intersperse)
 import Data.Maybe (fromJust, fromMaybe)
+import Data.Either
 import Control.Monad (when,unless)
+
 #if __GLASGOW_HASKELL__ < 710
 import Control.Applicative (Applicative (..), (<$>))
 #endif
-
---- import Debug.Trace (trace)
 
 type L = SrcSpanInfo
 type S = SrcSpan
@@ -165,23 +169,9 @@ checkPContext (TyCon l (Special _ (UnitCon _))) =
 checkPContext (TyParen l t) = do
     c <- checkAssertion t
     return $ CxSingle l (ParenA l c)
-checkPContext (TyPred _ p@(EqualP l _ _)) =
-  -- Depending on where EqualP is found, it may contain either 1 or 2 info
-  -- points.
-  --
-  -- If it's by itself, it contains two: one for the tilde, another for =>.
-  -- The => position is important to have in CxSingle, but for EqualP
-  -- itself it's not needed.
-  --
-  -- If it's parsed as an element of a tuple (a ~ b, ...), then it only
-  -- contains one info point. (But that case is handled in a different
-  -- branch.)
-  let
-    withInfoPoints f info = info {srcInfoPoints = f (srcInfoPoints info)}
-  in
-    return $
-      CxSingle (withInfoPoints (drop 1) l) $
-        amap (withInfoPoints $ take 1) p
+checkPContext (TyPred tp p@(EqualP {})) = do
+  checkEnabledOneOf [TypeFamilies, GADTs]
+  return $ CxSingle tp p
 
 checkPContext t = do
     c <- checkAssertion t
@@ -640,6 +630,7 @@ mkChildrenPat ps' = mkCPAux ps' []
 checkExpr :: PExp L -> P (S.Exp L)
 checkExpr e' = case e' of
     Var l v               -> return $ S.Var l v
+    OverloadedLabel l v   -> return $ S.OverloadedLabel l v
     IPVar l v             -> return $ S.IPVar l v
     Con l c               -> return $ S.Con l c
     Lit l lit             -> return $ S.Lit l lit
@@ -740,6 +731,7 @@ checkExpr e' = case e' of
 
     -- Hole
     WildCard l     -> return $ S.ExprHole l
+    TypeApp l ty   -> return $ S.TypeApp l ty
 
     _             -> fail $ "Parse error in expression: " ++ prettyPrint e'
 
@@ -1065,8 +1057,15 @@ checkSimpleType = checkSimple "test"
 -- Check actual types
 
 -- | Add a strictness/unpack annotation on a type.
-bangType :: L -> BangType L -> PType L -> PType L
-bangType = TyBang
+bangType :: Maybe (L -> BangType L, S) -> Maybe (Unpackedness L) -> PType L -> PType L
+bangType mstrict munpack ty =
+  case (mstrict,munpack) of
+    (Nothing, Just upack) -> TyBang (ann upack <++> ann ty) (NoStrictAnnot noSrcSpan) upack ty
+    (Just (strict, pos), _)  ->
+      TyBang (fmap ann munpack <?+> noInfoSpan pos <++> ann ty) (strict (noInfoSpan pos))
+        (fromMaybe (NoUnpackPragma noSrcSpan) munpack) ty
+    (Nothing, Nothing) -> ty
+
 
 checkType :: PType L -> P (S.Type L)
 checkType t = checkT t False
@@ -1099,13 +1098,15 @@ checkT t simple = case t of
      -- TyPred can be a valid type if ConstraintKinds is enabled, unless it is an implicit parameter, which is not a valid type
     TyPred _ (ClassA l className cvars) -> mapM checkType cvars >>= \vars -> return (foldl1 (S.TyApp l) (S.TyCon l className:vars))
     TyPred _ (InfixA l t0 op t1)        -> S.TyInfix l <$> checkType t0 <*> pure op <*> checkType t1
-    TyPred _ (EqualP l t0    t1)        -> S.TyEquals l <$> checkType t0 <*> checkType t1 where
+    TyPred _ (EqualP l t0    t1)        -> do
+      checkEnabledOneOf [TypeFamilies, GADTs]
+      S.TyEquals l <$> checkType t0 <*> checkType t1
 
     TyPromoted l p -> return $ S.TyPromoted l p -- ??
     TySplice l s        -> do
                               checkEnabled TemplateHaskell
                               return $ S.TySplice l s
-    TyBang l b t' -> check1Type t' (S.TyBang l b)
+    TyBang l b u t' -> check1Type t' (S.TyBang l b u)
     TyWildCard l mn -> return $ S.TyWildCard l mn
     TyQuasiQuote l n s -> do
                               checkEnabled QuasiQuotes
@@ -1141,7 +1142,7 @@ checkTyVar n = do
 
 -- ConstraintKinds allow the kind "Constraint", but not "Nat", etc. Specifically
 -- test for that.
-checkKind :: Show l => Kind l -> P ()
+checkKind :: Kind l -> P ()
 checkKind k = case k of
         KindVar _ q | constrKind q -> checkEnabledOneOf [ConstraintKinds, DataKinds]
             where constrKind name = case name of
@@ -1212,3 +1213,77 @@ mkRoleAnnotDecl l1 l2 tycon roles
           Nothing         ->
             fail ("Illegal role name " ++ role)
 
+
+
+
+mkAssocType :: S -> PType L -> (Maybe (ResultSig L), Maybe (S, S.Type L), Maybe (InjectivityInfo L)) -> P (ClassDecl L)
+mkAssocType tyloc ty (mres, mty, minj)  =
+  case (mres,mty, minj) of
+    -- No additional information
+    (Nothing, Nothing, Nothing) -> do
+      dh <- checkSimpleType ty
+      return $ ClsTyFam (noInfoSpan tyloc <++> ann ty) dh Nothing Nothing
+    -- Type default
+    (_, Just (eqloc, rhsty), Nothing) -> do
+      ty' <- checkType ty
+      let tyeq = TypeEqn (ann ty <++> ann rhsty <** [eqloc]) ty' rhsty
+      return $ ClsTyDef (noInfoSpan tyloc <++> ann ty <** [tyloc]) tyeq
+    -- Declaration with kind sig
+    (Just ressig, _, _) -> do
+      dh <- checkSimpleType ty
+      return $ ClsTyFam (noInfoSpan tyloc <++> ann ressig <** [tyloc]) dh (Just ressig) Nothing
+    -- Decl with inj info
+    (Nothing, Just (eqloc, rhsty), Just injinfo) -> do
+      ressig <- checkKTyVar eqloc rhsty
+      dh <- checkSimpleType ty
+      return $ ClsTyFam (noInfoSpan tyloc <++> ann injinfo <** [tyloc]) dh (Just ressig) minj
+    _ -> error "mkAssocType"
+
+  where
+    checkKTyVar :: S -> S.Type L -> P (ResultSig L)
+    checkKTyVar eqloc rhsty =
+      case rhsty of
+       S.TyVar l n -> return $ TyVarSig (noInfoSpan eqloc <++> l <** [eqloc]) (UnkindedVar l n)
+       S.TyKind l (S.TyVar _ n) k -> return $ TyVarSig (noInfoSpan eqloc <++> l <** [eqloc]) (KindedVar l n k)
+       _ -> fail ("Result of type family must be a type variable")
+
+-- | Transform btype with strict_mark's into HsEqTy's
+-- (((~a) ~b) c) ~d ==> ((~a) ~ (b c)) ~ d
+splitTilde :: PType L -> PType L
+splitTilde t = go t
+  where go (TyApp loc t1 t2)
+          | TyBang _ (LazyTy eqloc) (NoUnpackPragma _) t2' <- t2
+          = TyPred loc (EqualP (loc <** [srcInfoSpan eqloc]) (go t1) t2')
+          | otherwise
+          = case go t1 of
+              (TyPred _ (EqualP eqloc tl tr)) ->
+                TyPred loc (EqualP (eqloc <++> ann t2 <** srcInfoPoints eqloc) tl (TyApp (ann tr <++> ann t2) tr t2))
+              t' -> TyApp loc t' t2
+
+        go t' = t'
+
+-- Expects the arguments in the right order
+mkEThingWith :: L -> QName L -> [Either S (CName L)] -> P (ExportSpec L)
+mkEThingWith loc qn mcns = do
+  when (isWc wc && not (null cnames)) (checkEnabled PatternSynonyms)
+  return $ EThingWith loc wc qn cnames
+  where
+    isWc (NoWildcard {}) = False
+    isWc _ = True
+
+    wc :: EWildcard L
+    wc = maybe (NoWildcard noSrcSpan)
+               (\(n,Left s) -> EWildcard (noInfoSpan s) n)
+               (findWithIndex 0 checkLeft mcns)
+
+    checkLeft :: Either a b -> Bool
+    checkLeft (Left _) = True
+    checkLeft _ = False
+
+    cnames = rights mcns
+
+    findWithIndex :: Int -> (a -> Bool) -> [a] -> Maybe (Int, a)
+    findWithIndex _ _ [] = Nothing
+    findWithIndex n p (x:xs)
+      | p x = Just (n, x)
+      | otherwise = findWithIndex (n + 1) p xs

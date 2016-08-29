@@ -2,8 +2,7 @@
 -- | Use "runhaskell Setup.hs test" or "cabal test" to run these tests.
 module Main where
 
-import Language.Haskell.Exts.Annotated
-import qualified Language.Haskell.Exts as S -- S for "Simple", i.e. not annotated
+import Language.Haskell.Exts
 
 import Test.Tasty hiding (defaultMain)
 import Test.Tasty.Golden
@@ -12,7 +11,6 @@ import System.FilePath
 import System.IO
 import Control.Monad.Trans
 import Control.Applicative
-import Data.Generics
 import Extensions
 import Text.Show.Pretty
 
@@ -94,7 +92,7 @@ prettyPrinterTests sources = testGroup "Pretty printer tests" $ do
       let
         -- parse
         mbAst =
-          S.parseFileContentsWithMode
+          parseFileContentsWithMode
             (defaultParseMode { parseFilename = file })
             contents
         -- try to pretty-print; summarize the test result
@@ -117,22 +115,22 @@ prettyParserTests sources = testGroup "Pretty-parser tests" $ do
       contents <- readUTF8File file
       let
         -- parse
-        parse1Result :: ParseResult S.Module
+        parse1Result :: ParseResult (Module SrcSpanInfo)
         parse1Result =
-          S.parseFileContentsWithMode
+          parseFileContentsWithMode
             (defaultParseMode { parseFilename = file })
             contents
 
         prettyResult :: ParseResult String
         prettyResult = prettyPrint <$> parse1Result
 
-        parse2Result :: ParseResult (ParseResult S.Module)
-        parse2Result = S.parseFileContents <$> prettyResult
+        parse2Result :: ParseResult (ParseResult (Module SrcSpanInfo))
+        parse2Result = parseFileContents <$> prettyResult
 
         -- Even the un-annotated AST contains certain locations.
         -- Obviously, they may differ, so we have to erase them.
-        eraseLocs :: S.Module -> S.Module
-        eraseLocs = everywhere $ mkT $ const noLoc
+        eraseLocs :: Module l -> Module ()
+        eraseLocs = (() <$)
 
         summary =
           case liftA3 (,,) parse1Result prettyResult parse2Result of

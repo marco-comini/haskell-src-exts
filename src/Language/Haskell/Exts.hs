@@ -18,11 +18,13 @@ module Language.Haskell.Exts (
       module Language.Haskell.Exts.Syntax
     , module Language.Haskell.Exts.Build
     , module Language.Haskell.Exts.Lexer
-    , module Language.Haskell.Exts.Parser
     , module Language.Haskell.Exts.Pretty
-    , module Language.Haskell.Exts.Extension
     , module Language.Haskell.Exts.Fixity
+    , module Language.Haskell.Exts.ExactPrint
+    , module Language.Haskell.Exts.SrcLoc
     , module Language.Haskell.Exts.Comments
+    , module Language.Haskell.Exts.Extension
+    , module Language.Haskell.Exts.Parser
     -- * Parsing of Haskell source files
     , parseFile
     , parseFileWithMode
@@ -33,19 +35,20 @@ module Language.Haskell.Exts (
     , parseFileContentsWithMode
     , parseFileContentsWithExts
     , parseFileContentsWithComments
-    , parseFileContentsWithCommentsAndPragmas
     -- * Read extensions declared in LANGUAGE pragmas
     , readExtensions
     ) where
 
 import Language.Haskell.Exts.Build
-import Language.Haskell.Exts.Syntax
-import Language.Haskell.Exts.Parser
-import Language.Haskell.Exts.Lexer
-import Language.Haskell.Exts.Pretty
-import Language.Haskell.Exts.Extension
-import Language.Haskell.Exts.Fixity
 import Language.Haskell.Exts.Comments
+import Language.Haskell.Exts.Parser
+import Language.Haskell.Exts.Syntax
+import Language.Haskell.Exts.Lexer ( lexTokenStream, lexTokenStreamWithMode, Token(..) )
+import Language.Haskell.Exts.Pretty
+import Language.Haskell.Exts.Fixity
+import Language.Haskell.Exts.ExactPrint
+import Language.Haskell.Exts.SrcLoc
+import Language.Haskell.Exts.Extension
 
 import Data.List
 import Data.Maybe (fromMaybe)
@@ -53,39 +56,52 @@ import Language.Preprocessor.Unlit
 import System.IO
 
 -- | Parse a source file on disk, using the default parse mode.
-parseFile :: FilePath -> IO (ParseResult Module)
+parseFile :: FilePath -> IO (ParseResult (Module SrcSpanInfo))
 parseFile fp = parseFileWithMode (defaultParseMode { parseFilename = fp }) fp
 
 -- | Parse a source file on disk, with an extra set of extensions to know about
 --   on top of what the file itself declares.
-parseFileWithExts :: [Extension] -> FilePath -> IO (ParseResult Module)
-parseFileWithExts exts fp = parseFileWithMode (defaultParseMode { extensions = exts, parseFilename = fp }) fp
+parseFileWithExts :: [Extension] -> FilePath -> IO (ParseResult (Module SrcSpanInfo))
+parseFileWithExts exts fp =
+    parseFileWithMode (defaultParseMode {
+                         extensions = exts,
+                         parseFilename = fp }) fp
 
 -- | Parse a source file on disk, supplying a custom parse mode.
-parseFileWithMode :: ParseMode -> FilePath -> IO (ParseResult Module)
+parseFileWithMode :: ParseMode -> FilePath -> IO (ParseResult (Module SrcSpanInfo))
 parseFileWithMode p fp = readUTF8File fp >>= return . parseFileContentsWithMode p
 
--- | Parse a source file on disk, supplying a custom parse mode, and retaining comments.
-parseFileWithComments :: ParseMode -> FilePath -> IO (ParseResult (Module, [Comment]))
+parseFileWithComments :: ParseMode -> FilePath -> IO (ParseResult (Module SrcSpanInfo, [Comment]))
 parseFileWithComments p fp = readUTF8File fp >>= return . parseFileContentsWithComments p
 
 -- | Parse a source file on disk, supplying a custom parse mode, and retaining comments
 --  as well as unknown pragmas.
-parseFileWithCommentsAndPragmas :: ParseMode -> FilePath -> IO (ParseResult (Module, [Comment], [UnknownPragma]))
+parseFileWithCommentsAndPragmas
+  :: ParseMode -> FilePath
+  -> IO (ParseResult (Module SrcSpanInfo, [Comment], [UnknownPragma]))
 parseFileWithCommentsAndPragmas p fp =
     readUTF8File fp >>= return . parseFileContentsWithCommentsAndPragmas p
 
+-- | Parse a source file from a string using a custom parse mode retaining comments
+--   as well as unknown pragmas.
+parseFileContentsWithCommentsAndPragmas
+  :: ParseMode -> String
+  -> ParseResult (Module SrcSpanInfo, [Comment], [UnknownPragma])
+parseFileContentsWithCommentsAndPragmas pmode str = separatePragmas parseResult
+    where parseResult = parseFileContentsWithComments pmode str
+
 -- | Parse a source file from a string using the default parse mode.
-parseFileContents :: String -> ParseResult Module
+parseFileContents :: String -> ParseResult (Module SrcSpanInfo)
 parseFileContents = parseFileContentsWithMode defaultParseMode
 
 -- | Parse a source file from a string, with an extra set of extensions to know about
 --   on top of what the file itself declares.
-parseFileContentsWithExts :: [Extension] -> String -> ParseResult Module
-parseFileContentsWithExts exts = parseFileContentsWithMode (defaultParseMode { extensions = exts })
+parseFileContentsWithExts :: [Extension] -> String -> ParseResult (Module SrcSpanInfo)
+parseFileContentsWithExts exts =
+    parseFileContentsWithMode (defaultParseMode { extensions = exts })
 
 -- | Parse a source file from a string using a custom parse mode.
-parseFileContentsWithMode :: ParseMode -> String -> ParseResult Module
+parseFileContentsWithMode :: ParseMode -> String -> ParseResult (Module SrcSpanInfo)
 parseFileContentsWithMode p@(ParseMode fn oldLang exts ign _ _ _) rawStr =
         let md = delit fn $ ppContents rawStr
             (bLang, extraExts) =
@@ -93,10 +109,10 @@ parseFileContentsWithMode p@(ParseMode fn oldLang exts ign _ _ _) rawStr =
                   (False, Just (mLang, es)) ->
                        (fromMaybe oldLang mLang, es)
                   _ -> (oldLang, [])
-         in parseWithMode (p { baseLanguage = bLang, extensions = exts ++ extraExts }) md
+         in -- trace (fn ++ ": " ++ show extraExts) $
+              parseModuleWithMode (p { baseLanguage = bLang, extensions = exts ++ extraExts }) md
 
--- | Parse a source file from a string using a custom parse mode and retaining comments.
-parseFileContentsWithComments :: ParseMode -> String -> ParseResult (Module, [Comment])
+parseFileContentsWithComments :: ParseMode -> String -> ParseResult (Module SrcSpanInfo, [Comment])
 parseFileContentsWithComments p@(ParseMode fn oldLang exts ign _ _ _) rawStr =
         let md = delit fn $ ppContents rawStr
             (bLang, extraExts) =
@@ -104,26 +120,7 @@ parseFileContentsWithComments p@(ParseMode fn oldLang exts ign _ _ _) rawStr =
                   (False, Just (mLang, es)) ->
                        (fromMaybe oldLang mLang, es)
                   _ -> (oldLang, [])
-         in parseWithComments (p { baseLanguage = bLang, extensions = exts ++ extraExts }) md
-
--- | Parse a source file from a string using a custom parse mode retaining comments
---   as well as unknown pragmas.
-parseFileContentsWithCommentsAndPragmas :: ParseMode -> String -> ParseResult (Module, [Comment], [UnknownPragma])
-parseFileContentsWithCommentsAndPragmas pmode str = separatePragmas parseResult
-    where parseResult = parseFileContentsWithComments pmode str
-
-{-- | Gather the extensions declared in LANGUAGE pragmas
---   at the top of the file. Returns 'Nothing' if the
---   parse of the pragmas fails.
-readExtensions :: String -> Maybe [Extension]
-readExtensions str = case getTopPragmas str of
-        ParseOk pgms -> Just (concatMap getExts pgms)
-        _            -> Nothing
-  where getExts :: ModulePragma -> [Extension]
-        getExts (LanguagePragma _ ns) = map readExt ns
-        getExts _ = []
-
-        readExt (Ident e) = classifyExtension e -}
+         in parseModuleWithComments (p { baseLanguage = bLang, extensions = exts ++ extraExts }) md
 
 -- | Gather the extensions declared in LANGUAGE pragmas
 --   at the top of the file. Returns 'Nothing' if the
@@ -132,11 +129,11 @@ readExtensions :: String -> Maybe (Maybe Language, [Extension])
 readExtensions str = case getTopPragmas str of
         ParseOk pgms -> extractLang $ concatMap getExts pgms
         _            -> Nothing
-  where getExts :: ModulePragma -> [Either Language Extension]
+  where getExts :: ModulePragma l -> [Either Language Extension]
         getExts (LanguagePragma _ ns) = map readExt ns
         getExts _ = []
 
-        readExt (Ident e) =
+        readExt (Ident _ e) =
             case classifyLanguage e of
               UnknownLanguage _ -> Right $ classifyExtension e
               lang -> Left lang
@@ -159,9 +156,16 @@ ppContents = unlines . f . lines
 delit :: String -> String -> String
 delit fn = if ".lhs" `isSuffixOf` fn then unlit fn else id
 
+readUTF8File :: FilePath -> IO String
+readUTF8File fp = do
+  h <- openFile fp ReadMode
+  hSetEncoding h utf8
+  hGetContents h
+
 -- | Converts a parse result with comments to a parse result with comments and
 --   unknown pragmas.
-separatePragmas :: ParseResult (Module, [Comment]) -> ParseResult (Module, [Comment], [UnknownPragma])
+separatePragmas :: ParseResult (Module SrcSpanInfo, [Comment])
+                -> ParseResult (Module SrcSpanInfo, [Comment], [UnknownPragma])
 separatePragmas r =
     case r of
         ParseOk (m, comments) ->
@@ -172,9 +176,3 @@ separatePragmas r =
                       pragLike (Comment b _ s) = b && pcond s
                       pcond s = length s > 1 && take 1 s == "#" && last s == '#'
         ParseFailed l s ->  ParseFailed l s
-
-readUTF8File :: FilePath -> IO String
-readUTF8File fp = do
-  h <- openFile fp ReadMode
-  hSetEncoding h utf8
-  hGetContents h

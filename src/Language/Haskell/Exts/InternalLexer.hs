@@ -36,6 +36,7 @@ import Control.Monad (when)
 
 data Token
         = VarId String
+        | LabelVarId String
         | QVarId (String,String)
         | IDupVarId (String)        -- duplicable implicit parameter
         | ILinVarId (String)        -- linear implicit parameter
@@ -88,6 +89,7 @@ data Token
         | LeftArrow
         | RightArrow
         | At
+        | TApp -- '@' but have to check for preceeding whitespace
         | Tilde
         | DoubleArrow
         | Minus
@@ -348,6 +350,12 @@ isIdent   c = isAlphaNum c || c == '\'' || c == '_'
 isHSymbol c = c `elem` ":!#%&*./?@\\-" || ((isSymbol c || isPunctuation c) && not (c `elem` "(),;[]`{}_\"'"))
 
 isPragmaChar c = isAlphaNum c || c == '_'
+
+-- Used in the lexing of type applications
+-- Why is it like this? I don't know exactly but this is how it is in
+-- GHC's parser.
+isOpSymbol :: Char -> Bool
+isOpSymbol c = c `elem` "!#$%&*+./<=>?@\\^|-~"
 
 -- | Checks whether the character would be legal in some position of a qvar.
 --   Means that '..' and "AAA" will pass the test.
@@ -735,6 +743,23 @@ lexStdToken = do
         '[':':':_ | ParallelArrays `elem` exts -> discard 2 >> return ParArrayLeftSquare
 
         ':':']':_ | ParallelArrays `elem` exts -> discard 2 >> return ParArrayRightSquare
+
+        -- Lexed seperately to deal with visible type applciation
+
+        '@':c:_ | TypeApplications `elem` exts
+                   -- Operator starting with an '@'
+                   && not (isOpSymbol c) -> do
+                                                lc <- getLastChar
+                                                if isIdent lc
+                                                  then discard 1 >> return At
+                                                  else discard 1 >> return TApp
+
+        '#':c:_ | OverloadedLabels `elem` exts
+                   && isLower c              -> do
+                                                  discard 1
+                                                  [ident] <- lexIdents
+                                                  return $ LabelVarId ident
+
 
         c:_ | isDigit c -> lexDecimalOrFloat
 
@@ -1249,6 +1274,7 @@ isBinDigit c =  c >= '0' && c <= '1'
 showToken :: Token -> String
 showToken t = case t of
   VarId s           -> s
+  LabelVarId s      -> '#':s
   QVarId (q,s)      -> q ++ '.':s
   IDupVarId s       -> '?':s
   ILinVarId s       -> '%':s
@@ -1295,6 +1321,7 @@ showToken t = case t of
   LeftArrow         -> "<-"
   RightArrow        -> "->"
   At                -> "@"
+  TApp              -> "@"
   Tilde             -> "~"
   DoubleArrow       -> "=>"
   Minus             -> "-"
@@ -1339,7 +1366,7 @@ showToken t = case t of
   GENERATED         -> "{-# GENERATED"
   CORE              -> "{-# CORE"
   UNPACK            -> "{-# UNPACK"
-  NOUNPACK            -> "{-# NOUNPACK"
+  NOUNPACK          -> "{-# NOUNPACK"
   OPTIONS (mt,_)    -> "{-# OPTIONS" ++ maybe "" (':':) mt ++ " ..."
 --  CFILES  s         -> "{-# CFILES ..."
 --  INCLUDE s         -> "{-# INCLUDE ..."

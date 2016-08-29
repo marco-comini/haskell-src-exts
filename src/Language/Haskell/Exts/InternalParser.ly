@@ -28,12 +28,12 @@
 >               ngparsePragmasAndModuleName
 >               ) where
 >
-> import Language.Haskell.Exts.Annotated.Syntax hiding ( Type(..), Exp(..), Asst(..), XAttr(..), FieldUpdate(..) )
-> import Language.Haskell.Exts.Annotated.Syntax ( Type, Exp, Asst )
+> import Language.Haskell.Exts.Syntax hiding ( Type(..), Exp(..), Asst(..), XAttr(..), FieldUpdate(..) )
+> import Language.Haskell.Exts.Syntax ( Type, Exp, Asst )
 > import Language.Haskell.Exts.ParseMonad
 > import Language.Haskell.Exts.InternalLexer
 > import Language.Haskell.Exts.ParseUtils
-> import Language.Haskell.Exts.Annotated.Fixity
+> import Language.Haskell.Exts.Fixity
 > import Language.Haskell.Exts.SrcLoc
 > import Language.Haskell.Exts.Extension
 
@@ -102,6 +102,7 @@ Conflicts: 7 shift/reduce
 
 > %token
 >       VARID    { Loc _ (VarId _) }       -- 1
+>       LABELVARID { Loc _ (LabelVarId _) }
 >       QVARID   { Loc _ (QVarId _) }
 >       IDUPID   { Loc _ (IDupVarId _) }       -- duplicable implicit parameter ?x
 >       ILINID   { Loc _ (ILinVarId _) }       -- linear implicit parameter %x
@@ -154,6 +155,7 @@ Reserved operators
 >       '<-'    { Loc $$ LeftArrow }
 >       '->'    { Loc $$ RightArrow }
 >       '@'     { Loc $$ At }
+>       TYPEAPP { Loc $$ TApp }
 >       '~'     { Loc $$ Tilde }
 >       '=>'    { Loc $$ DoubleArrow }
 >       '-'     { Loc $$ Minus }
@@ -295,7 +297,7 @@ Pragmas
 > %partial ngparsePragmasAndModuleHead moduletophead
 > %partial ngparsePragmasAndModuleName moduletopname
 > %tokentype { Loc Token }
-> %expect 8
+> %expect 10
 > %%
 
 -----------------------------------------------------------------------------
@@ -415,13 +417,20 @@ The Export List
 >       |  'type' qcname                          {% do { checkEnabled ExplicitNamespaces;
 >                                                       return (EAbs (nIS $1 <++> ann $2 <** [$1, srcInfoSpan (ann $2)]) (TypeNamespace (nIS $1 <** [$1])) $2) } }
 >       |  qtyconorcls                          { EAbs (ann $1) (NoNamespace (ann $1)) $1 }
->       |  qtyconorcls '(' '..' ')'             { EThingAll  (ann $1 <++> nIS $4 <** [$2,$3,$4]) $1 }
->       |  qtyconorcls '(' ')'                  { EThingWith (ann $1 <++> nIS $3 <** [$2,$3])    $1 [] }
->       |  qtyconorcls '(' cnames ')'           { EThingWith (ann $1 <++> nIS $4 <** ($2:reverse (snd $3) ++ [$4])) $1 (reverse (fst $3)) }
+>       |  qtyconorcls '(' ')'                  { EThingWith (ann $1 <++> nIS $3 <** [$2,$3])    (NoWildcard noSrcSpan) $1 [] }
+>       |  qtyconorcls '(' export_names ')'     {% mkEThingWith (ann $1 <++> nIS $4 <** ($2:reverse (snd $3) ++ [$4])) $1 (reverse $ fst $3) }
 >       |  'module' modid                       { EModuleContents (nIS $1 <++> ann $2 <** [$1]) $2 }
 >       |  'pattern' qcon                       {%  do { checkEnabled PatternSynonyms;
 >                                                       return $ EAbs (nIS $1 <++> (ann $2) <** [$1])
 >                                                                  (PatternNamespace (nIS $1)) $2 }}
+
+> export_names :: { ([Either S (CName L)],[S]) }
+>       :  export_names ',' cname_w_wildcard          { ($3 : fst $1, $2 : snd $1) }
+>       |  cname_w_wildcard                     { ([$1],[])  }
+
+> cname_w_wildcard :: { Either S (CName L) }
+>       :  '..'                                 { Left $1 }
+>       |  cname                                { Right $1 }
 
 >
 > qcname :: { QName L }
@@ -494,10 +503,10 @@ Requires the PackageImports extension enabled.
 >       |  tyconorcls                           { IAbs (ann $1) (NoNamespace (ann $1)) $1 }
 >       |  tyconorcls '(' '..' ')'              { IThingAll  (ann $1 <++> nIS $4 <** [$2,$3,$4]) $1 }
 >       |  tyconorcls '(' ')'                   { IThingWith (ann $1 <++> nIS $3 <** [$2,$3])    $1 [] }
->       |  tyconorcls '(' cnames ')'            { IThingWith (ann $1 <++> nIS $4 <** ($2:reverse (snd $3) ++ [$4])) $1 (reverse (fst $3)) }
+>       |  tyconorcls '(' import_names ')'            { IThingWith (ann $1 <++> nIS $4 <** ($2:reverse (snd $3) ++ [$4])) $1 (reverse (fst $3)) }
 
-> cnames :: { ([CName L],[S]) }
->       :  cnames ',' cname                     { ($3 : fst $1, $2 : snd $1) }
+> import_names :: { ([CName L],[S]) }
+>       :  import_names ',' cname               { ($3 : fst $1, $2 : snd $1) }
 >       |  cname                                { ([$1],[])  }
 
 > cname :: { CName L }
@@ -524,6 +533,20 @@ Fixity Declarations
 >       : ops ',' op                            { let (ops,ss,l) = $1 in ($3 : ops, $2 : ss, l <++> ann $3) }
 >       | op                                    { ([$1],[],ann $1) }
 
+
+> opt_injectivity_info :: { Maybe (InjectivityInfo L) }
+>        : {- empty -}                  { Nothing }
+>        | injectivity_info             { Just $1 }
+
+> injectivity_info :: { InjectivityInfo L }
+>        : '|' tyvarid '->' inj_varids
+>              { InjectivityInfo (nIS $1 <++> ann (last $4) <** [$1,$3]) $2 (reverse $4) }
+>
+>
+> inj_varids :: { [Name L] }
+>        : inj_varids tyvarid  { $2 : $1 }
+>        | tyvarid             { [$1]     }
+
 -----------------------------------------------------------------------------
 Top-Level Declarations
 
@@ -546,12 +569,12 @@ shift/reduce-conflict, so we don't handle this case here, but in bodyaux.
 
 Requires the TypeFamilies extension enabled, but the lexer will handle
 that through the 'family' keyword.
->       | 'type' 'family' type optkind where_type_family
+>       | 'type' 'family' type opt_tyfam_kind_sig opt_injectivity_info where_type_family
 >                {% do { dh <- checkSimpleType $3;
->                        let {l = nIS $1 <++> ann $3 <+?> (fmap ann) (fst $4) <** ($1:$2:snd $4)};
->                        case $5 of {
->                          Nothing    -> return (TypeFamDecl l dh (fst $4));
->                          Just (x,a) -> return (ClosedTypeFamDecl (l <** [a]) dh (fst $4) x); }}}
+>                        let {l = nIS $1 <++> ann $3 <** [$1,$2]};
+>                        case $6 of {
+>                          Nothing    -> return (TypeFamDecl l dh $4 $5);
+>                          Just (x,a) -> return (ClosedTypeFamDecl (l <** [a]) dh $4 $5 x); }}}
 
 Here there is no special keyword so we must do the check.
 >       | 'type' 'instance' truedtype '=' truectype
@@ -577,10 +600,10 @@ Requires the GADTs extension enabled, handled in gadtlist.
 >                         _ -> checkEnabled GADTs >> return (GDataDecl l $1 cs dh (fst $3) (reverse gs) $5) } }
 
 Same as above, lexer will handle it through the 'family' keyword.
->       | 'data' 'family' ctype optkind
+>       | 'data' 'family' ctype opt_datafam_kind_sig
 >                {% do { (cs,dh) <- checkDataHeader $3;
->                        let {l = nIS $1 <++> ann $3 <+?> (fmap ann) (fst $4) <** ($1:$2:snd $4)};
->                        return (DataFamDecl l cs dh (fst $4)) } }
+>                        let {l = nIS $1 <++> ann $3 <+?> (fmap ann) $4 <** [$1,$2]};
+>                        return (DataFamDecl l cs dh $4) } }
 
 Here we must check for TypeFamilies.
 >       | data_or_newtype 'instance' truectype constrs0 deriving
@@ -641,6 +664,29 @@ lexer through the 'foreign' (and 'export') keyword.
 >       | '{-# ANN'        annotation '#-}'     { AnnPragma      ($1 <^^> $3 <** [$1,$3]) $2 }
 >       | decl          { $1 }
 
+> -- Family result/return kind signatures
+>
+> opt_datafam_kind_sig :: { Maybe (ResultSig L) }
+>        :               { Nothing     }
+>        | '::' kind     { (Just $ KindSig (nIS $1 <++> ann $2 <** [$1]) $2) }
+>
+> opt_tyfam_kind_sig :: { Maybe (ResultSig L) }
+>        :              { Nothing       }
+>        | '::' kind    { (Just $ KindSig  (nIS $1 <++> ann $2 <** [$1]) $2) }
+>        | '='  ktyvar  { (Just $ TyVarSig (nIS $1 <++> ann $2 <** [$1]) $2) }
+>
+> opt_at_kind_inj_sig :: { (Maybe (ResultSig L), Maybe (InjectivityInfo L))}
+>        :            { (Nothing, Nothing) }
+>        | '::' kind  { (Just (KindSig (nIS $1 <++> ann $2 <** [$1]) $2), Nothing) }
+>        | '='  ktyvar injectivity_info
+>                { (Just (TyVarSig (nIS $1 <++> ann $2 <** [$1]) $2), Just $3) }
+
+> opt_at_kind_inj_sig2 :: { (Maybe (ResultSig L), Maybe (S, Type L), Maybe (InjectivityInfo L))}
+>        :            { (Nothing, Nothing, Nothing) }
+>        | '::' kind  { (Just (KindSig (nIS $1 <++> ann $2 <** [$1]) $2), Nothing, Nothing) }
+>        | '='  truectype opt_injectivity_info { (Nothing, Just ($1, $2), $3) }
+
+
 Role annotations
 
 > role_annot :: { Decl L }
@@ -680,7 +726,7 @@ Parsing the body of a closed type family, partially stolen from the source of GH
 >         | ty_fam_inst_eqn                        { [$1] }
 
 > ty_fam_inst_eqn :: { TypeEqn L }
->         : truedtype '=' truectype
+>         : truectype '=' truectype
 >                 {% do { checkEnabled TypeFamilies ;
 >                         return (TypeEqn (ann $1 <++> ann $3 <** [$2]) $1 $3) } }
 
@@ -877,13 +923,13 @@ Type equality contraints need the TypeFamilies extension.
 >       : dtype                         {% checkType $1 }
 
 > dtype :: { PType L }
->       : btype                         { $1 }
+>       : btype                         { splitTilde $1 }
 >       | btype qtyconop dtype          { TyInfix ($1 <> $3) $1 $2 $3 }
 >       | btype qtyvarop dtype          { TyInfix ($1 <> $3) $1 $2 $3 } -- FIXME
->       | btype '->' ctype              { TyFun ($1 <> $3 <** [$2]) $1 $3 }
->       | btype '~' btype               {% do { checkEnabledOneOf [TypeFamilies, GADTs] ;
->                                               let {l = $1 <> $3 <** [$2]};
->                                               return $ TyPred l $ EqualP l $1 $3 } }
+>       | btype '->' ctype              { TyFun ($1 <> $3 <** [$2]) (splitTilde $1) $3 }
+       | btype '~' btype               {% do { checkEnabledOneOf [TypeFamilies, GADTs] ;
+                                               let {l = $1 <> $3 <** [$2]};
+                                               return $ TyPred l $ EqualP l $1 $3 } }
 
 Implicit parameters can occur in normal types, as well as in contexts.
 
@@ -895,7 +941,9 @@ Implicit parameters can occur in normal types, as well as in contexts.
 >       | dtype                         { $1 }
 
 > truebtype :: { Type L }
->       : btype                         {% checkType $1 }
+>       : btype                         {% checkType (splitTilde $1) }
+> trueatype :: { Type L }
+>       : atype                         {% checkType $1 }
 
 > btype :: { PType L }
 >       : btype atype                   { TyApp ($1 <> $2) $1 $2 }
@@ -907,8 +955,8 @@ the (# and #) lexemes. Kinds will be handled at the kind rule.
 > atype :: { PType L }
 >       : gtycon                        { TyCon   (ann $1) $1 }
 >       | tyvar                         {% checkTyVar $1 }
->       | strict_mark atype             { let (annot, locs) = $1
->                                          in bangType (nIS (head locs) <++> ann $2) annot $2 }
+>       | strict_mark atype             { let (mstrict, mupack) = $1
+>                                         in bangType mstrict mupack $2 }
 >       | '(' types ')'                 { TyTuple ($1 <^^> $3 <** ($1:reverse ($3:snd $2))) Boxed   (reverse (fst $2)) }
 >       | '(#' types1 '#)'              { TyTuple ($1 <^^> $3 <** ($1:reverse ($3:snd $2))) Unboxed (reverse (fst $2)) }
 >       | '[' type ']'                  { TyList  ($1 <^^> $3 <** [$1,$3]) $2 }
@@ -932,10 +980,18 @@ the (# and #) lexemes. Kinds will be handled at the kind rule.
 >       | INT                           { let Loc l (IntTok  (i,raw)) = $1 in PromotedInteger (nIS l) i raw }
 >       | STRING                        { let Loc l (StringTok (s,raw)) = $1 in PromotedString (nIS l) s raw }
 
-> strict_mark :: { (BangType L, [S]) }
->        : '!'                           { (BangedTy ((nIS $1) <** [$1]), [$1]) }
->        | '{-# UNPACK' '#-}' '!'        { let l = [$1,$2,$3] in (UnpackedTy (nIS $1 <++> nIS $3 <** l), l) }
->        | '{-# NOUNPACK' '#-}' '!'      { let l = [$1,$2,$3] in (NoUnpackedTy (nIS $1 <++> nIS $3 <** l), l) }
+> strict_mark :: { (Maybe (L -> BangType L,S), Maybe (Unpackedness L)) }
+>        : strictness              { (Just $1, Nothing) }
+>        | unpackedness            { (Nothing, Just $1) }
+>        | unpackedness strictness { (Just $2, Just $1) }
+
+> strictness :: { (L -> BangType L, S) }
+>        : '!'                           { (BangedTy, $1) }
+>        | '~'                           { (LazyTy, $1) }
+
+> unpackedness :: { Unpackedness L }
+>        : '{-# UNPACK' '#-}'           { (Unpack ((nIS $1 <++> nIS $2) <** [$1,$2])) }
+>        | '{-# NOUNPACK' '#-}'         { (NoUnpack ((nIS $1 <++> nIS $2) <** [$1,$2])) }
 
 
 > gtycon :: { QName L }
@@ -982,10 +1038,7 @@ is any of the keyword-enabling ones, except ExistentialQuantification.
 Equality constraints require the TypeFamilies extension.
 
 > context :: { PContext L }
->       : btype '=>'                    {% checkPContext $ (amap (\l -> l <++> nIS $2 <** (srcInfoPoints l ++ [$2]))) $1 }
->       | btype '~' btype '=>'          {% do { checkEnabledOneOf [TypeFamilies, GADTs];
->                                               let {l = $1 <> $3 <** [$2,$4]};
->                                               checkPContext (TyPred l $ EqualP l $1 $3) } }
+>       : btype '=>'                    {% checkPContext $ (amap (\l -> l <++> nIS $2 <** (srcInfoPoints l ++ [$2]))) (splitTilde $1) }
 
 > types :: { ([PType L],[S]) }
 >       : types1 ',' ctype              { ($3 : fst $1, $2 : snd $1)  }
@@ -1177,17 +1230,23 @@ Associated types require the TypeFamilies extension.
 >       | atdecl                        {% checkEnabled TypeFamilies >> return $1 }
 >       | 'default' signdecl            {% checkEnabled DefaultSignatures >> checkDefSigDef $2 >>= \(n,t,l) -> return (ClsDefSig (nIS $1 <++> ann $2 <** [$1,l]) n t) }
 
+> opt_family   :: { [S] }
+>              : {- empty -}   { [] }
+>              | 'family'      { [$1] }
+
 > atdecl :: { ClassDecl L }
->       : 'type' type optkind
->             {% do { dh <- checkSimpleType $2;
->                     return (ClsTyFam  (nIS $1 <++> ann $2 <+?> (fmap ann) (fst $3) <** $1:snd $3) dh (fst $3)) } }
->       | 'type' truedtype '=' truectype
->                     { ClsTyDef (nIS $1 <++> ann $4 <** [$1,$3]) $2 $4 }
->       | 'type' 'instance' truedtype '=' truectype
->                     { ClsTyDef (nIS $1 <++> ann $5 <** [$1,$2,$4]) $3 $5 }
->       | 'data' ctype optkind
->             {% do { (cs,dh) <- checkDataHeader $2;
->                     return (ClsDataFam (nIS $1 <++> ann $2 <+?> (fmap ann) (fst $3) <** $1:snd $3) cs dh (fst $3)) } }
+>       : 'data' opt_family type opt_datafam_kind_sig
+>             {% do { (cs,dh) <- checkDataHeader $3;
+>                     return (ClsDataFam (nIS $1 <++> ann $3 <+?> (fmap ann) $4 <** [$1]) cs dh $4) } }
+>       | 'type' type opt_at_kind_inj_sig2
+>             {% mkAssocType $1 $2 $3 }
+>       | 'type' 'family' type opt_at_kind_inj_sig
+>             {% do { dh <- checkSimpleType $3;
+>                     return (ClsTyFam  (nIS $1 <++> ann $3 <+?> (fmap ann) (fst $4)
+>                                                           <+?> (fmap ann) (snd $4)
+>                                                           <** [$1]) dh (fst $4) (snd $4)) } }
+>       | 'type' 'instance' ty_fam_inst_eqn
+>                     { ClsTyDef (nIS $1 <++> ann $3 <** [$1,$2]) $3 }
 
 -----------------------------------------------------------------------------
 Instance declarations
@@ -1381,6 +1440,7 @@ Non-linear name binding, @:, requires RegularPatterns, but the lexer handles tha
 >       | qvar '@:' aexp                {% do { n <- checkUnQual $1;
 >                                               return (CAsRP ($1 <> $3 <** [$2]) n $3) } }
 >       | '~' aexp                      { IrrPat (nIS $1 <++> ann $2 <** [$1]) $2 }
+>       | TYPEAPP trueatype             { TypeApp (nIS $1 <++> ann $2 <** [$1]) $2 }
 >       | aexp1                         { $1 }
 
 Note: The first two alternatives of aexp1 are not necessarily record
@@ -1400,6 +1460,7 @@ thing we need to look at here is the erpats that use no non-standard lexemes.
 
 > aexp2 :: { PExp L }
 >       : ivar                          { IPVar (ann $1) $1 }
+>       | overloaded_label              { $1 }
 >       | qvar                          { Var (ann $1) $1 }
 >       | gcon                          { $1 }
 >       | literal                       { Lit (ann $1) $1 }
@@ -1643,6 +1704,9 @@ Case alternatives
 >       : '{'  alts '}'                 { (fst $2, $1 <^^> $3, $1:snd $2 ++ [$3])  }
 >       | open alts close               { let l' =  ann . last $ fst $2
 >                                          in (fst $2, nIS $1 <++> l', $1:snd $2 ++ [$3]) }
+>       | '{' '}'                       {% do { checkEnabled EmptyCase;
+>                                               return ([], $1 <^^> $2, [$1, $2]) } }
+
 
 > alts :: { ([Alt L],[S]) }
 >       : optsemis alts1 optsemis       { (reverse $ fst $2, $1 ++ snd $2 ++ $3) }
@@ -1813,6 +1877,10 @@ Implicit parameter
 >       : ':'                   { list_cons_name (nIS $1) }
 >       | qconsym               { $1 }
 
+> overloaded_label :: { PExp L }
+>       : LABELVARID            { let Loc l (LabelVarId v) = $1 in OverloadedLabel
+>                                                                      (nIS l) v }
+
 -----------------------------------------------------------------------------
 Identifiers and Symbols
 
@@ -1936,10 +2004,18 @@ Pattern Synonyms
 >                                  (_:_) -> ann $1 <++> (ann $ last $2)
 >                         in PApp l (UnQual (ann $1) $1) $2 }
 >       | varid qconsym varid  { PInfixApp (ann $1 <++> ann $3) (PVar (ann $1) $1) $2 (PVar (ann $3) $3) }
+>       | con '{' commavars '}' {  let { (ss, ns) = $3 ;
+>                                        qnames = (map (\n -> UnQual (ann n) n) ns) }
+>                                  in PRec (ann $1 <++> nIS $4 <** ($2 : ss ++ [$4]))
+>                                          (UnQual (ann $1) $1) (map (\q -> PFieldPun (ann q) q) qnames) }
 >
 > vars0 :: { [Pat L] }
 >       :  {- empty -}        { [] }
 >       |  varid vars0        { PVar (ann $1) $1 : $2 }
+
+> commavars :: { ([S], [Name L]) }
+>       : varid                 { ([], [$1] ) }
+>       | varid ',' commavars   { let (ss, ns) = $3 in ($2 : ss, $1 : ns) }
 
 > where_decls :: { PatternSynDirection L }
 >       : 'where' '{' decls '}'       {%  checkExplicitPatSyn $1 $2 $3 $4 }

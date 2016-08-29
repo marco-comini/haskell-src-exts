@@ -474,6 +474,11 @@ ParseOk
                             , SrcSpan "tests/examples/Directory.hs" 61 7 61 8
                             ]
                         }
+                      (NoWildcard
+                         SrcSpanInfo
+                           { srcInfoSpan = SrcSpan "" (-1) (-1) (-1) (-1)
+                           , srcInfoPoints = []
+                           })
                       (UnQual
                          SrcSpanInfo
                            { srcInfoSpan = SrcSpan "tests/examples/Directory.hs" 55 7 55 18

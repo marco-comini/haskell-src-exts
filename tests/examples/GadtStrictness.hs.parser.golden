@@ -84,8 +84,12 @@ ParseOk
                     (BangedTy
                        SrcSpanInfo
                          { srcInfoSpan = SrcSpan "tests/examples/GadtStrictness.hs" 4 8 4 9
-                         , srcInfoPoints =
-                             [ SrcSpan "tests/examples/GadtStrictness.hs" 4 8 4 9 ]
+                         , srcInfoPoints = []
+                         })
+                    (NoUnpackPragma
+                       SrcSpanInfo
+                         { srcInfoSpan = SrcSpan "" (-1) (-1) (-1) (-1)
+                         , srcInfoPoints = []
                          })
                     (TyCon
                        SrcSpanInfo

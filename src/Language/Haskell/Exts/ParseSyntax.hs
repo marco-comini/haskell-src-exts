@@ -2,14 +2,15 @@
 {-# OPTIONS_HADDOCK hide #-}
 module Language.Haskell.Exts.ParseSyntax where
 
-import Language.Haskell.Exts.Annotated.Syntax hiding ( Type(..), Asst(..), Exp(..), FieldUpdate(..), XAttr(..), Context(..) )
-import qualified Language.Haskell.Exts.Annotated.Syntax as S ( Type(..), Promoted(..) )
+import Language.Haskell.Exts.Syntax hiding ( Type(..), Asst(..), Exp(..), FieldUpdate(..), XAttr(..), Context(..) )
+import qualified Language.Haskell.Exts.Syntax as S ( Type(..), Promoted(..) )
 
 ---------------------------------------
 -- Expressions as we parse them (and patterns, and regular patterns)
 
 data PExp l
     = Var l (QName l)                       -- ^ variable
+    | OverloadedLabel l String              -- ^ overloaded label #foo
     | IPVar l (IPName l)                    -- ^ implicit parameter variable
     | Con l (QName l)                       -- ^ data constructor
     | Lit l (Literal l)                     -- ^ literal constant
@@ -102,6 +103,7 @@ data PExp l
 
 -- LambdaCase
     | LCase l [Alt l]                       -- ^ @\case@ /alts/
+    | TypeApp l (S.Type l)
    deriving (Eq,Show,Functor)
 
 data PFieldUpdate l
@@ -116,6 +118,7 @@ data ParseXAttr l = XAttr l (XName l) (PExp l)
 instance Annotated PExp where
     ann e = case e of
         Var l _                 -> l
+        OverloadedLabel l _     -> l
         IPVar l _               -> l
         Con l _                 -> l
         Lit l _                 -> l
@@ -181,9 +184,11 @@ instance Annotated PExp where
 
         LCase l _               -> l
         MultiIf l _             -> l
+        TypeApp l _             -> l
 
     amap f e' = case e' of
         Var l qn                -> Var   (f l) qn
+        OverloadedLabel l qn    -> OverloadedLabel (f l) qn
         IPVar l ipn             -> IPVar (f l) ipn
         Con l qn                -> Con   (f l) qn
         Lit l lit               -> Lit   (f l) lit
@@ -249,6 +254,7 @@ instance Annotated PExp where
 
         LCase l alts -> LCase (f l) alts
         MultiIf l alts -> MultiIf (f l) alts
+        TypeApp l ty -> TypeApp (f l) ty
 
 instance Annotated PFieldUpdate where
     ann (FieldUpdate l _  _) = l
@@ -303,7 +309,7 @@ data PType l
      | TyKind  l (PType l) (Kind l)             -- ^ type with explicit kind signature
      | TyPromoted l (S.Promoted l)              -- ^ promoted data type
      | TySplice l (Splice l)                    -- ^ template haskell splice type
-     | TyBang l (BangType l) (PType l)          -- ^ Strict type marked with \"@!@\" or type marked with UNPACK pragma.
+     | TyBang l (BangType l) (Unpackedness l) (PType l) -- ^ Strict type marked with \"@!@\" or type marked with UNPACK pragma.
      | TyWildCard l (Maybe (Name l))            -- ^ Type wildcard
      | TyQuasiQuote l String String             -- ^ @[qq| |]@
   deriving (Eq, Show, Functor)
@@ -324,7 +330,7 @@ instance Annotated PType where
       TyPromoted l   _              -> l
       TyPred l _                    -> l
       TySplice l _                  -> l
-      TyBang  l _ _                 -> l
+      TyBang  l _ _ _                 -> l
       TyWildCard  l _               -> l
       TyQuasiQuote l _ _            -> l
     amap f t' = case t' of
@@ -342,7 +348,7 @@ instance Annotated PType where
       TyPromoted l   p              -> TyPromoted (f l)   p
       TyPred l asst                 -> TyPred (f l) asst
       TySplice l s                  -> TySplice (f l) s
-      TyBang  l b t                 -> TyBang (f l) b t
+      TyBang  l b u t                 -> TyBang (f l) b u t
       TyWildCard l mn               -> TyWildCard (f l) mn
       TyQuasiQuote l n s            -> TyQuasiQuote (f l) n s
 

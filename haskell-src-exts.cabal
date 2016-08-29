@@ -1,5 +1,5 @@
 Name:                   haskell-src-exts
-Version:                1.17.1
+Version:                1.18.2
 License:                BSD3
 License-File:           LICENSE
 Build-Type:             Simple
@@ -8,29 +8,20 @@ Maintainer:             Niklas Broberg <niklas.broberg@chalmers.se>, Roman Chepl
 Category:               Language
 Synopsis:               Manipulating Haskell source: abstract syntax, lexer, parser, and pretty-printer
 Description:            Haskell-Source with Extensions (HSE, haskell-src-exts)
-                        is an extension of the standard haskell-src package,
-                        and handles most registered syntactic extensions to Haskell, including:
+                        is a standalone parser for Haskell. In addition to
+                        standard Haskell, all extensions implemented in GHC are supported.
                         .
-                        * Multi-parameter type classes with functional dependencies
-                        .
-                        * Indexed type families (including associated types)
-                        .
-                        * Empty data declarations
-                        .
-                        * GADTs
-                        .
-                        * Implicit parameters
-                        .
-                        * Template Haskell
-                        .
-                        and a few more. All extensions implemented in GHC are supported.
                         Apart from these standard extensions,
                         it also handles regular patterns as per the HaRP extension
                         as well as HSX-style embedded XML syntax.
 Homepage:               https://github.com/haskell-suite/haskell-src-exts
 Stability:              Stable
 Cabal-Version:          >= 1.10
-Tested-With:            GHC == 7.4.2, GHC == 7.6.3, GHC == 7.8.2, GHC == 7.10.2
+Tested-With:              GHC == 7.4.2
+                        , GHC == 7.6.3
+                        , GHC == 7.8.2
+                        , GHC == 7.10.3
+                        , GHC == 8.0.1
 
 Extra-Source-Files:
                         README.md
@@ -59,23 +50,16 @@ Library
 
   Exposed-modules:      Language.Haskell.Exts,
                         Language.Haskell.Exts.Lexer,
-                        Language.Haskell.Exts.Parser,
                         Language.Haskell.Exts.Pretty,
-                        Language.Haskell.Exts.Syntax,
                         Language.Haskell.Exts.Extension,
                         Language.Haskell.Exts.Build,
-                        Language.Haskell.Exts.Fixity,
-                        Language.Haskell.Exts.Comments,
                         Language.Haskell.Exts.SrcLoc,
 
-                        Language.Haskell.Exts.Annotated,
-                        Language.Haskell.Exts.Annotated.Syntax,
-                        Language.Haskell.Exts.Annotated.Fixity,
-                        Language.Haskell.Exts.Annotated.Build,
-                        Language.Haskell.Exts.Annotated.ExactPrint,
-                        Language.Haskell.Exts.Annotated.Simplify,
-                        Language.Haskell.Exts.Annotated.Parser,
-                        Language.Haskell.Exts.Annotated.Comments
+                        Language.Haskell.Exts.Syntax,
+                        Language.Haskell.Exts.Fixity,
+                        Language.Haskell.Exts.ExactPrint,
+                        Language.Haskell.Exts.Parser,
+                        Language.Haskell.Exts.Comments
 
   Other-modules:        Language.Haskell.Exts.ExtScheme,
                         Language.Haskell.Exts.ParseMonad,
@@ -94,7 +78,7 @@ Test-Suite test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      tests
   main-is:             Runner.hs
-  GHC-Options:         -threaded -Wall
+  GHC-Options:         -threaded -Wall -O0
   Default-language:    Haskell2010
   Build-depends:       base < 5,
                        mtl,
@@ -106,5 +90,4 @@ Test-Suite test
                        tasty-golden >= 2.2.2,
                        filepath,
                        directory,
-                       syb,
-                       pretty-show
+                       pretty-show >= 1.6.10

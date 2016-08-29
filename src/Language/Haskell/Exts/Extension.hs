@@ -375,6 +375,9 @@ data KnownExtension =
 
   | LambdaCase
 
+  -- | [GHC &#xa7; 7.3.20] Allow case expressions with no alternatives.
+  | EmptyCase
+
   -- | [GHC &#xa7; 7.8.6] Deprecated in GHC 6.12 and will be removed in
   -- GHC 7.  Allow a type variable to be instantiated at a
   -- polymorphic type.
@@ -524,6 +527,12 @@ data KnownExtension =
   -- start with an underscore as wildcards. For example, `foo :: _x` is
   -- equivalent to `foo :: _`.
   | NamedWildCards
+
+  | TypeApplications
+
+  | TypeFamilyDependencies
+
+  | OverloadedLabels
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Data, Typeable)
 
 -- | Certain extensions imply other extensions, and this function
@@ -558,6 +567,7 @@ impliesExts = go
                     ExistentialQuantification -> [ExplicitForAll]
                     ImpredicativeTypes   -> [ExplicitForAll]
                     PolyKinds           -> [KindSignatures]
+                    TypeFamilyDependencies -> [TypeFamilies]
                     -- Deprecations
                     RecordPuns          -> [NamedFieldPuns]
                     PatternSignatures   -> [ScopedTypeVariables]

@@ -20,9 +20,9 @@ import GHC.Generics (Generic)
 
 -- | A single position in the source.
 data SrcLoc = SrcLoc
-    { srcFilename :: String
-    , srcLine :: Int
-    , srcColumn :: Int
+    { srcFilename :: !String
+    , srcLine :: !Int
+    , srcColumn :: !Int
     }
   deriving (Eq,Ord,Typeable,Data,Generic)
 
@@ -36,11 +36,11 @@ noLoc = SrcLoc "" (-1) (-1)
 
 -- | A portion of the source, spanning one or more lines and zero or more columns.
 data SrcSpan = SrcSpan
-    { srcSpanFilename    :: String
-    , srcSpanStartLine   :: Int
-    , srcSpanStartColumn :: Int
-    , srcSpanEndLine     :: Int
-    , srcSpanEndColumn   :: Int
+    { srcSpanFilename    :: !String
+    , srcSpanStartLine   :: !Int
+    , srcSpanStartColumn :: !Int
+    , srcSpanEndLine     :: !Int
+    , srcSpanEndColumn   :: !Int
     }
   deriving (Eq,Ord,Typeable,Data)
 
@@ -106,6 +106,11 @@ instance Show SrcSpanInfo where
 -- | Generate a 'SrcSpanInfo' with no positional information for entities.
 noInfoSpan :: SrcSpan -> SrcSpanInfo
 noInfoSpan ss = SrcSpanInfo ss []
+
+-- | A bogus `SrcSpanInfo`, the location is @noLoc@.
+-- `noSrcSpan = noInfoSpan (mkSrcSpan noLoc noLoc)`
+noSrcSpan :: SrcSpanInfo
+noSrcSpan = noInfoSpan (mkSrcSpan noLoc noLoc)
 
 -- | Generate a 'SrcSpanInfo' with the supplied positional information for entities.
 infoSpan :: SrcSpan -> [SrcSpan] -> SrcSpanInfo
